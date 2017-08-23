@@ -1,0 +1,277 @@
+---
+title: "Finding Bad Apples Before They Rot"
+subtitle: "Using Machine Learning Techniques to Predict Food Inspection Results"
+author: 
+- PBPL 28820
+- Lily Li
+output: pdf_document
+---
+
+#Introduction
+
+With millions of residents and tourists each year and thousands of facilities that store, produce, or serve food, the danger of a food safety violation in a Chicago establishment is significant. To address food safety violations, the Chicago Department of Public Health conducts tens of thousands of establishment inspections each year. However, the department is unable to conduct as many inspections as is required by law due to a lack of staff and funding. In 2015, less than half of Chicago's high-risk food establishments were inspected twice, as required by the state.[^1] Under these conditions, it is critical for the Department of Public Health to maximize the impact of each inspection. It would be ideal if the city could determine which establishments are more at risk of violating the law and only target those establishments to increase the potential utility of each inspection. To accomplish this, the city would need to predict the probability that a given establishment will fail its inspection. Because this is a prediction problem, we can look to machine learning for a solution.
+
+[^1]: http://www.chicagotribune.com/business/ct-chicago-restaurant-inspections-1130-biz-20161129-story.html
+
+In fact, the city has already tried to do this. Chicago built a predictive analytics tool to identify the highest-risk establishments and began implementing it in 2015. I plan to build my own model and compare my results to the city’s to see if I can improve upon the city’s current analytics tool.
+
+
+#Design
+
+##Data
+
+My main dataset is the “Food Inspections” dataset from the Chicago Data Portal, which gives the inspections of restaurants and other food establishments in Chicago from January 1, 2010 to present day. For each observation in the dataset, the name, license number, type of facility (ex. bakery, gas station, liquor store, restaurant, etc.), risk category of facility, address, inspection date, inspection type, result, and type of violation is given. Each observation in the “Food Inspections” dataset is a standalone inspection. I used the dataset to construct additional variables of “past_inspect” and “past_failed_inspect” to show the inspection history of each establishment and how well it has done on inspections in the past. This also lets me account for how long a restaurant has been open, because those who have been open longer have more inspections.
+
+I suspect that the likelihood of failing a food violation is dependent upon other variables not contained in this dataset. For instance, the cleanliness of a restaurant may be affected by the state of its surrounding area. To add additional variables to the “Food Inspections” dataset, I located the community area of each establishment based on its coordinates. I then added community-area-level crime statistics, socioeconomic indicators, and 311 data (Sanitation Code Complaints, Garbage Carts, Rodent Baiting, Abandoned Vehicles, and more). 
+
+I also performed data cleaning to improve the quality of the data. I cleaned the categorical variables of Facility Type and Inspection Type to correct for misspelling and repeated categories. I also cleaned the Results variable to turn it into a binary classifier. I removed inspections that had results of “Not Ready”, “Out of Business”, “No Entry”, or “Business Not Located”. In addition, I turned the "Pass w/ Conditions" result (which occurs when establishments are found to have critical or serious violations, but these violations are corrected during the inspection) to simply “Pass” because I am only interested in catching worst-case scenario inspections that lead to failure.
+
+In addition, I restricted the types of inspections in my dataset. The city conducts several types of inspections, some of which are routine and required for a new business to open, and others that are done in response to specific complaints, such as food poisoning. I am not interested in studying the latter because they must occur and are not risk-based. Thus, I will only look at routine (canvass) inspections and re-inspections, the most common type of inspection performed at a frequency relative to the risk of the establishment.
+
+##Model Construction
+
+The effectiveness of my model depends on how well I do compared to the status quo. In this situation, the status quo is already better than randomly selected inspections, because the city has implemented its own predictive analytics tool. Thus, my model must perform better than the city’s to be effective. 
+
+I can examine my performance by keeping the number of failed inspections constant, seeing how many inspections I need to do to catch that number of failures, and comparing my total number of inspections to the city’s. 
+
+If inspections were randomly selected, I could simply split the food inspections dataset into two time periods and use the earlier time period as my training set and the later time period as my test set. However, the city’s predictive analytics tool complicates things.
+
+The frequency of canvass inspections is driven by the risk level of the facility. Prior to 2015, risk levels were solely determined by the food handling practices required for each establishment. Establishments were generally categorized as riskier the more contact they had with preparing and serving food (so restaurants were riskiest and prepackaged food facilities were the least risky). After 2015, the city began using its own analytics model to quantify the risk of each individual establishment. It is unclear how robust the city's risk model was prior to 2015, so I will assume that inspections were randomly selected for simplicity’s sake. After 2015, the city began targeting high-risk establishments. This means that data from 2015 onwards is biased by the city’s algorithm. If we were to construct a test set consisting of data from 2015-2016, our results would be skewed towards failure, because we would only be testing on establishments the city deemed risky.
+
+To address this issue, I will attempt to recreate the city’s model by observing which establishments the city chose to inspect in 2015, as this is when the city began implementing its tool. My recreation of the city’s model will serve as a proxy for how the city is measuring an establishment’s risk of failure, and if we assume the city is doing a good job of predicting failures, my “inspected_in_2015” variable should closely mirror the results of these inspections.
+
+I will run two models, my own and my approximation of the city’s. For both models, the training set is data from 2010-2013, and the test set is data from 2014. I use 2014 data as my test data, because 2014 is the last year before the model was put in use, so these inspections are still “neutral” and randomly selected. My own model will use the results of past inspections to predict the results in 2014. The city’s model will see which establishments in the training set were inspected in 2015, and use that information to predict the likelihood of establishments in the test set being inspected in 2015. I will run a ridge regression and lasso for both models.
+
+My final training dataset had 35,573 observations with 94 predictors, while my test dataset had 12,144 observations with 94 predictors. A full list of my variables is located in the appendix of this paper.
+
+
+#Results
+In 2014, there were 12,144 canvass inspections. 2,003 of those inspections resulted in failure, leading to a hit rate of 16.5%. I would like to improve that hit rate by holding the number of failed inspections constant and reducing the total number of inspections.
+
+##Ridge Regression Models
+I first fit a ridge regression model on the training set to predict an inspection’s result. For my model, $\lambda = 0.01$ results in the smallest cross-validation error. Out of 126 coefficients, the 10 largest by absolute value are presented below. As expected, none of the 126 coefficients are zero, since ridge regression does not perform variable selection.
+
+\begin{table}[!htbp] \centering 
+  \caption{10 Largest Coefficients in My Ridge Regression} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}} cc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+Variable & Coefficients \\ 
+\hline \\[-1.8ex] 
+(Intercept) & $192.657$ \\ 
+PUBLIC\_INDECENCY\_crimerate & $$-$4.644$ \\ 
+NON\_CRIMINAL\_crimerate & $2.797$ \\ 
+Facility\_Type: church & $$-$2.301$ \\ 
+Facility\_Type: movie theater & $$-$2.203$ \\ 
+Facility\_Type: cafeteria & $$-$2.114$ \\ 
+Facility\_Type: navy pier kiosk & $$-$2.059$ \\ 
+Inspection\_Type: canvass re-inspection & $$-$1.499$ \\ 
+Facility\_Type: other & $1.438$ \\ 
+Facility\_Type: rooftop & $$-$1.383$ \\ 
+\hline \\[-1.8ex] 
+\end{tabular} 
+\end{table} 
+
+I rank ordered the probabilities of failure in descending order to select the riskiest establishments. To get 2,003 failures, my model would require 12,132 inspections. This is essentially no improvement from the baseline rate, as this is only 12 fewer inspections than what actually occurred in 2014.
+
+I then fit a ridge regression model on the training set to predict if an establishment was inspected in 2015, to mimic the city’s model. For this model, $\lambda = 0.01$ results in the smallest cross-validation error. Out of 126 coefficients, the 10 largest by absolute value are presented below.
+
+\begin{table}[!htbp] \centering 
+  \caption{10 Largest Coefficients in City Ridge Regression} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}} cc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+Variable & Coefficients \\ 
+\hline \\[-1.8ex] 
+(Intercept) & $$-$552.065$ \\ 
+Facility\_Type: kiosk & $4.066$ \\ 
+Facility\_Type: church & $3.790$ \\ 
+Facility\_Type: children's services facility & $$-$3.565$ \\ 
+Facility\_Type: daycare & $$-$3.451$ \\ 
+Facility\_Type: butcher & $3.279$ \\ 
+Facility\_Type: college & $3.063$ \\ 
+Facility\_Type: nursing home & $$-$2.201$ \\ 
+NON\_CRIMINAL\_crimerate & $2.151$ \\ 
+Risk: Risk 3 (Low) & $$-$2.125$ \\ 
+\hline \\[-1.8ex] 
+\end{tabular} 
+\end{table} 
+
+To target the 2,003 riskiest establishments as determined by the city, the city’s model would require 2,186 inspections. Clearly, the city’s model is doing much better at predicting the likelihood of an establishment being inspected in 2015 than my model is at predicting the likelihood of a failed inspection.
+
+##Lasso Models
+I then fit a lasso model on the training set to predict an inspection’s result. For this model, $\lambda = 0.01$ results in the smallest cross-validation error. Out of 126 coefficients, the 10 largest by absolute value are presented below.
+
+\begin{table}[!htbp] \centering 
+  \caption{10 Largest Coefficients in my lasso Regression} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}} cc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+Variable & Coefficients \\ 
+\hline \\[-1.8ex] 
+(Intercept) & $$-$5.373$ \\ 
+Inspection\_Type: canvass re-inspection & $$-$1.103$ \\ 
+Facility\_Type: other & $1.065$ \\ 
+PUBLIC\_INDECENCY\_crimerate & $$-$1.033$ \\ 
+Facility\_Type: bar & $0.568$ \\ 
+Risk: Risk 3 (Low) & $0.107$ \\ 
+Facility\_Type: grocery & $0.107$ \\ 
+past\_failed\_inspect & $0.040$ \\ 
+INTERFERENCE\_WITH\_PUBLIC\_OFFICER\_crimerate & $0.040$ \\ 
+BURGLARY\_crimerate & $0.015$ \\ 
+\hline \\[-1.8ex] 
+\end{tabular} 
+\end{table} 
+
+Unlike ridge regression, the lasso does perform variable selection, so it will turn some of the coefficients to exactly zero. In this case, the model turns 110 of the 126 coefficient estimates to exactly zero.
+
+To get 2,003 failures, my model would require 12,133 inspections. Once again, there is very minimal improvement from what actually occurred in 2014.
+
+I then fit a lasso model on the training set to predict inspected_in_2015. For this model, $\lambda = 0.01$ results in the smallest cross-validation error. Out of 126 coefficients, the 10 largest are presented below.
+
+\begin{table}[!htbp] \centering 
+  \caption{10 Largest Coefficients in city lasso Regression} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}} cc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+Variable & Coefficients \\ 
+\hline \\[-1.8ex] 
+(Intercept) & $$-$335.855$ \\ 
+Facility\_Type: daycare & $$-$2.804$ \\ 
+Facility\_Type: children's services facility & $$-$2.196$ \\ 
+Risk: Risk 3 (Low) & $$-$2.004$ \\ 
+Facility\_Type: kiosk & $1.753$ \\ 
+Facility\_Type: nursing home & $$-$1.492$ \\ 
+Facility\_Type: school & $1.385$ \\ 
+Facility\_Type: golden diner & $0.664$ \\ 
+Risk: Risk 2 (Medium) & $$-$0.504$ \\ 
+Facility\_Type: church & $0.259$ \\ 
+\hline \\[-1.8ex] 
+\end{tabular} 
+\end{table}
+
+In this case, the model turns 105 coefficient estimates to exactly zero.
+
+To target the 2,003 riskiest establishments as determined by the city, the city’s model would require 2,233 inspections. Once again, the city’s model is doing much better at its prediction problem that my model is.
+
+
+#Conclusion
+Neither of my machine learning models (ridge regression or lasso) for predicting inspection results performs well enough to justify the city replacing its current model with mine. My models perform about as well as the pre-2015 status quo. While my ridge regression model reduced the number of inspections by one more than my lasso model, this difference is not significant enough for me to favor one model over the other.
+
+It is difficult to compare the success of my model to the city’s, because my initial assumptions appear to be incorrect. I assumed that the city's prediction tool is very good at predicting which establishments will fail. This led me to believe that the “inspected_in_2015” and “Results” variables, both 0/1 binary variables, were measuring the same thing (i.e. if an establishment was inspected in 2015, it also failed its 2015 inspection). I used this assumption to justify approximating the city’s model by predicting “inspected_in_2015.” However, this assumption does not seem to be true. In the test set, “inspected_in_2015” and “Results” are only the same for 3,871 inspections, or 31.9% of the total inspections.
+
+Looking at my results, it seems much easier to predict an establishment’s likelihood of being inspected by the city than the actual result of the inspection. This suggests that the city is not solely concerned with maximizing its hit rate. The city may have other considerations for choosing inspections besides the final result of the inspection, like spreading out inspections evenly among geographic areas or facility types. This is evidenced by the city’s hit rates in 2015 and 2016. Even with the help of the prediction tool, the city was only able to achieve a hit rate of 18.11% in 2015 and 18.08% in 2016. This also explains why my model’s results are vastly worse that my approximation of the city’s model. Being inspected in 2015 is a poor proxy for failure, because the vast majority of inspections in 2015 passed. 
+
+Another possible explanation for the city’s low hit rates post-2015 is that the city is trying to predict pure results and is just doing a very poor job. Thus, the establishments the city predicts will fail often pass instead.
+
+My unsatisfactory results for my results prediction model could be due to two issues: either I do not have the proper data needed to accurately predict food inspection results, or food inspection results are inherently difficult to predict. Looking at the actual city’s model[^2], the city used a few data sources that I did not use, like Business Licenses and weather data. If I had more time, I would add this data to my model to see if I could improve my results. I would have also liked to incorporate price and ratings information from Yelp. In addition, community-area-level statistics may be too broad. In the future, I would like to aggregate data at the block group level instead. It is difficult to determine if food inspection results are inherently hard to predict without running more models on more data. Additional research and work needs to be done in this area to determine how to best reduce the risk of unsafe food conditions in Chicago establishments.
+
+[^2]: The city's model can be found here: https://github.com/Chicago/food-inspections-evaluation. While their code is publicly available online, I did not look at it until after I ran my models to avoid influencing my predictors and model selection.
+
+\pagebreak
+
+#Appendix
+
+Listed below are all the variables in my training and test set:
+
+ [1] "License__"                                   
+ [2] "Facility_Type"                               
+ [3] "Risk"                                        
+ [4] "Zip"                                         
+ [5] "Inspection_Type"                             
+ [6] "Results"                                     
+ [7] "comm_area"                                   
+ [8] "past_inspect"                                
+ [9] "past_failed_inspect"                         
+[10] "inspect_year"                                
+[11] "num_abandoned_buildings_complaints"          
+[12] "num_abandoned_vehicles_complaints"           
+[13] "avg_abandoned_vehicles_complaint_length"     
+[14] "num_alley_lights_out_complaints"             
+[15] "avg_alley_lights_out_complaint_length"       
+[16] "num_garbage_carts_complaints"                
+[17] "avg_garbage_carts_complaint_length"          
+[18] "num_graffiti_complaints"                     
+[19] "avg_graffiti_complaint_length"               
+[20] "num_lights_all_complaints"                   
+[21] "avg_lights_all_complaint_length"             
+[22] "num_lights_one_complaints"                   
+[23] "avg_lights_one_complaint_length"             
+[24] "num_pot_holes_complaints"                    
+[25] "avg_pot_holes_complaint_length"              
+[26] "num_rodent_complaints"                       
+[27] "avg_rodent_complaint_length"                 
+[28] "num_sanitation_complaints"                   
+[29] "avg_sanitation_complaint_length"             
+[30] "num_tree_debris_complaints"                  
+[31] "avg_tree_debris_complaint_length"            
+[32] "num_tree_trims_complaints"                   
+[33] "avg_tree_trims_complaint_length"             
+[34] "num_abandoned_buildings_complaints_miss"     
+[35] "num_abandoned_vehicles_complaints_miss"      
+[36] "avg_abandoned_vehicles_complaint_length_miss"      
+[37] "num_alley_lights_out_complaints_miss"        
+[38] "avg_alley_lights_out_complaint_length_miss"  
+[39] "num_garbage_carts_complaints_miss"           
+[40] "avg_garbage_carts_complaint_length_miss"     
+[41] "num_graffiti_complaints_miss"                
+[42] "avg_graffiti_complaint_length_miss"          
+[43] "num_lights_all_complaints_miss"              
+[44] "avg_lights_all_complaint_length_miss"        
+[45] "num_lights_one_complaints_miss"              
+[46] "avg_lights_one_complaint_length_miss"        
+[47] "num_pot_holes_complaints_miss"               
+[48] "avg_pot_holes_complaint_length_miss"         
+[49] "num_rodent_complaints_miss"                  
+[50] "avg_rodent_complaint_length_miss"            
+[51] "num_sanitation_complaints_miss"              
+[52] "avg_sanitation_complaint_length_miss"        
+[53] "num_tree_debris_complaints_miss"             
+[54] "avg_tree_debris_complaint_length_miss"       
+[55] "num_tree_trims_complaints_miss"              
+[56] "avg_tree_trims_complaint_length_miss"        
+[57] "ARSON_crimerate"                             
+[58] "ASSAULT_crimerate"                           
+[59] "BATTERY_crimerate"                           
+[60] "BURGLARY_crimerate"                          
+[61] "CONC_CARRY_crimerate"                        
+[62] "SEXUAL_ASSAULT_crimerate"                    
+[63] "CRIM_DAMAGE_crimerate"                       
+[64] "CRIM_TRESPASS_crimerate"                     
+[65] "DECEP_PRACT_crimerate"                       
+[66] "GAMBLING_crimerate"                          
+[67] "HOMICIDE_crimerate"                          
+[68] "HUMAN_TRAFF_crimerate"                       
+[69] "INTERF_PUB_OFF_crimerate"                    
+[70] "INTIMIDATION_crimerate"                      
+[71] "KIDNAPPING_crimerate"                        
+[72] "LIQUOR_crimerate"                            
+[73] "MOTOR_THEFT_crimerate"                       
+[74] "NARCOTICS_crimerate"                         
+[75] "NON_CRIM_crimerate"                          
+[76] "OBSCENITY_crimerate"                         
+[77] "OFFENSE_CHILDREN_crimerate"                  
+[78] "OTHER_NARCOTIC_crimerate"                    
+[79] "OTHER_OFFENSE_crimerate"                     
+[80] "PROSTITUTION_crimerate"                      
+[81] "PUBLIC_INDEC_crimerate"                      
+[82] "PUB_PEACE_crimerate"                         
+[83] "ROBBERY_crimerate"                           
+[84] "SEX_OFFENSE_crimerate"                       
+[85] "STALKING_crimerate"                          
+[86] "THEFT_crimerate"                             
+[87] "WEAPONS_VIOL_crimerate"                      
+[88] "PERCENT_OF_HOUSING_CROWDED"                  
+[89] "PERCENT_HOUSEHOLDS_BELOW_POVERTY"            
+[90] "PERCENT_AGED_16__UNEMPLOYED"                 
+[91] "PERCENT_AGED_25__WITHOUT_HIGH_SCHOOL_DIPLOMA"      
+[92] "PERCENT_AGED_UNDER_18_OR_OVER_64"            
+[93] "PER_CAPITA_INCOME"                           
+[94] "HARDSHIP_INDEX"                              
+[95] "month"                                       
+[96] "day"                                         
+[97] "inspected_in_2015" 
